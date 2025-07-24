@@ -1,10 +1,17 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc, Timelike, Datelike, Weekday};
 use clap::{Args, Parser, Subcommand};
-use git2::Repository;
+use git2::{Repository, RemoteCallbacks};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use tempfile::TempDir;
+use url::Url;
+use std::sync::{Arc, Mutex};
+use std::io::{self, Write};
+
+static TEMP_DIRS: std::sync::LazyLock<Arc<Mutex<Vec<TempDir>>>> = 
+    std::sync::LazyLock::new(|| Arc::new(Mutex::new(Vec::new())));
 
 #[derive(Parser)]
 #[command(name = "git-analyzer")]
@@ -28,6 +35,8 @@ struct ContributorsArgs {
     path: PathBuf,
     #[arg(short, long)]
     json: bool,
+    #[arg(short, long, help = "Clone and analyze remote repository from URL")]
+    url: Option<String>,
 }
 
 #[derive(Args)]
@@ -36,6 +45,8 @@ struct ActivityArgs {
     path: PathBuf,
     #[arg(short, long)]
     json: bool,
+    #[arg(short, long, help = "Clone and analyze remote repository from URL")]
+    url: Option<String>,
 }
 
 #[derive(Args)]
@@ -44,6 +55,8 @@ struct FilesArgs {
     path: PathBuf,
     #[arg(short, long)]
     json: bool,
+    #[arg(short, long, help = "Clone and analyze remote repository from URL")]
+    url: Option<String>,
 }
 
 #[derive(Args)]
@@ -52,6 +65,8 @@ struct AllArgs {
     path: PathBuf,
     #[arg(short, long)]
     json: bool,
+    #[arg(short, long, help = "Clone and analyze remote repository from URL")]
+    url: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -86,20 +101,85 @@ fn main() -> Result<()> {
 
     match cli.command {
         Commands::Contributors(args) => {
-            analyze_contributors(&args.path, args.json)?
+            let repo_path = get_repo_path(&args.path, &args.url)?;
+            analyze_contributors(&repo_path, args.json)?
         },
         Commands::Activity(args) => {
-            analyze_activity(&args.path, args.json)?
+            let repo_path = get_repo_path(&args.path, &args.url)?;
+            analyze_activity(&repo_path, args.json)?
         },
         Commands::Files(args) => {
-            analyze_files(&args.path, args.json)?
+            let repo_path = get_repo_path(&args.path, &args.url)?;
+            analyze_files(&repo_path, args.json)?
         },
         Commands::All(args) => {
-            analyze_all(&args.path, args.json)?
+            let repo_path = get_repo_path(&args.path, &args.url)?;
+            analyze_all(&repo_path, args.json)?
         },
     }
 
     Ok(())
+}
+
+fn get_repo_path(local_path: &PathBuf, url: &Option<String>) -> Result<PathBuf> {
+    match url {
+        Some(repo_url) => {
+            // Validate URL
+            let _parsed_url = Url::parse(repo_url)
+                .map_err(|e| anyhow::anyhow!("Invalid URL '{}': {}", repo_url, e))?;
+            
+            // Clone to temporary directory with progress
+            println!("🔄 Cloning repository: {}", repo_url);
+            let temp_dir = TempDir::new()?;
+            let clone_path = temp_dir.path().to_path_buf();
+            
+            // Set up progress callbacks
+            let mut remote_callbacks = RemoteCallbacks::new();
+            remote_callbacks.transfer_progress(|progress| {
+                let network_pct = (100 * progress.received_objects()) / progress.total_objects();
+                
+                if progress.total_objects() > 0 {
+                    print!("\r📥 Receiving objects: {}% ({}/{})", 
+                        network_pct, 
+                        progress.received_objects(), 
+                        progress.total_objects());
+                    io::stdout().flush().unwrap();
+                }
+                true
+            });
+            
+            remote_callbacks.update_tips(|_refname, _a, _b| {
+                print!("\r✅ Resolving deltas and updating references...");
+                io::stdout().flush().unwrap();
+                true
+            });
+            
+            // Clone the repository
+            let mut builder = git2::build::RepoBuilder::new();
+            let mut fetch_options = git2::FetchOptions::new();
+            fetch_options.remote_callbacks(remote_callbacks);
+            builder.fetch_options(fetch_options);
+            
+            match builder.clone(repo_url, &clone_path) {
+                Ok(_) => {
+                    println!("\n✅ Successfully cloned repository");
+                    
+                    // Store the temp directory to prevent cleanup
+                    TEMP_DIRS.lock().unwrap().push(temp_dir);
+                    
+                    Ok(clone_path)
+                },
+                Err(e) => {
+                    println!("\n❌ Failed to clone repository: {}", e);
+                    Err(anyhow::anyhow!("Clone failed: {}", e))
+                }
+            }
+        },
+        None => {
+            // Use local path
+            Ok(local_path.clone())
+        }
+    }
 }
 
 fn analyze_contributors(repo_path: &PathBuf, json_output: bool) -> Result<()> {
