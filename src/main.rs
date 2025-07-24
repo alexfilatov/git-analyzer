@@ -255,8 +255,56 @@ fn calculate_hourly_distribution(commit_times: &[DateTime<Utc>]) -> HashMap<u8, 
 
 fn analyze_activity(repo_path: &PathBuf, json_output: bool) -> Result<()> {
     let repo = Repository::open(repo_path)?;
-    println!("📈 Analyzing activity in repository: {:?}", repo_path);
+    let (monthly_commits, hourly_commits) = collect_activity_data(&repo)?;
+
+    if json_output {
+        let activity = serde_json::json!({
+            "monthly_commits": monthly_commits,
+            "hourly_commits": hourly_commits
+        });
+        println!("{}", serde_json::to_string_pretty(&activity)?);
+    } else {
+        println!("📈 Commit Activity by Month:");
+        let mut sorted_months: Vec<_> = monthly_commits.iter().collect();
+        sorted_months.sort_by(|a, b| a.0.cmp(b.0));
+        
+        for (month, count) in sorted_months {
+            println!("{}: {} commits", month, count);
+        }
+
+        println!("\n📊 Commit Activity by Hour:");
+        for hour in 0..24 {
+            let count = hourly_commits.get(&hour).unwrap_or(&0);
+            println!("{:02}:00 - {:02}:59: {} commits", hour, hour, count);
+        }
+    }
+
     Ok(())
+}
+
+fn collect_activity_data(repo: &Repository) -> Result<(HashMap<String, u32>, HashMap<u8, u32>)> {
+    let mut monthly_commits: HashMap<String, u32> = HashMap::new();
+    let mut hourly_commits: HashMap<u8, u32> = HashMap::new();
+    
+    let mut revwalk = repo.revwalk()?;
+    revwalk.push_head()?;
+    
+    for oid in revwalk {
+        let oid = oid?;
+        let commit = repo.find_commit(oid)?;
+        let author = commit.author();
+        let commit_time = DateTime::from_timestamp(author.when().seconds(), 0)
+            .unwrap_or_default()
+            .with_timezone(&Utc);
+        
+        let month_key = commit_time.format("%Y-%m").to_string();
+        *monthly_commits.entry(month_key).or_insert(0) += 1;
+        
+        let hour = commit_time.hour() as u8;
+        *hourly_commits.entry(hour).or_insert(0) += 1;
+    }
+    
+    Ok((monthly_commits, hourly_commits))
 }
 
 fn analyze_files(repo_path: &PathBuf, json_output: bool) -> Result<()> {
