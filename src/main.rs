@@ -360,13 +360,54 @@ fn analyze_activity(repo_path: &PathBuf, json_output: bool) -> Result<()> {
         }
 
         println!("\n📊 Commit Activity by Hour:");
-        for hour in 0..24 {
-            let count = hourly_commits.get(&hour).unwrap_or(&0);
-            println!("{:02}:00 - {:02}:59: {} commits", hour, hour, count);
-        }
+        display_hourly_chart(&hourly_commits);
     }
 
     Ok(())
+}
+
+fn display_hourly_chart(hourly_commits: &HashMap<u8, u32>) {
+    let max_commits = hourly_commits.values().max().unwrap_or(&0);
+    let max_bar_width = 50; // Maximum width of the bar chart
+    
+    for hour in 0..24 {
+        let count = hourly_commits.get(&hour).unwrap_or(&0);
+        let bar_width = if *max_commits > 0 {
+            ((count * max_bar_width) / max_commits).max(if *count > 0 { 1 } else { 0 })
+        } else {
+            0
+        };
+        
+        let bar = "█".repeat(bar_width as usize);
+        let empty_bar = "░".repeat((max_bar_width - bar_width) as usize);
+        
+        // Add time period indicators
+        let period_indicator = match hour {
+            0..=5 => "🌙", // Night
+            6..=8 => "🌅", // Early morning
+            9..=17 => "☀️", // Day/Work hours
+            18..=21 => "🌆", // Evening
+            _ => "🌙", // Late night
+        };
+        
+        println!("{} {:02}:00-{:02}:59 │{}{} {} commits", 
+            period_indicator,
+            hour, 
+            (hour + 1) % 24,
+            bar,
+            empty_bar,
+            count
+        );
+    }
+    
+    println!("\nLegend: 🌙 Night  🌅 Morning  ☀️ Day  🌆 Evening");
+    println!("Scale: Each █ represents {} commit(s)", 
+        if *max_commits > max_bar_width { 
+            (*max_commits as f32 / max_bar_width as f32).ceil() as u32 
+        } else { 
+            1 
+        }
+    );
 }
 
 fn collect_activity_data(repo: &Repository) -> Result<(HashMap<String, u32>, HashMap<u8, u32>)> {

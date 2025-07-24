@@ -73,11 +73,11 @@ Create your own Homebrew tap:
 ```bash
 # Create a new repository for your tap
 # Repository name MUST be homebrew-<tap-name>
-# Example: homebrew-tools
+# Example: homebrew-git-analyzer
 
 # Clone your tap repository
-git clone https://github.com/alexfilatov/homebrew-tools.git
-cd homebrew-tools
+git clone https://github.com/alexfilatov/homebrew-git-analyzer.git
+cd homebrew-git-analyzer
 
 # Copy the formula
 cp ../git-analyzer/Formula/git-analyzer.rb Formula/
@@ -90,7 +90,7 @@ git push origin main
 
 Users can then install with:
 ```bash
-brew tap alexfilatov/tools
+brew tap alexfilatov/git-analyzer
 brew install git-analyzer
 ```
 
@@ -106,7 +106,7 @@ For inclusion in the main Homebrew repository:
 
 ```bash
 # Test installation from your tap
-brew tap alexfilatov/tools
+brew tap alexfilatov/git-analyzer
 brew install git-analyzer
 
 # Test the binary
@@ -115,7 +115,7 @@ git-analyzer contributors --url https://github.com/octocat/Hello-World.git
 
 # Test uninstallation
 brew uninstall git-analyzer
-brew untap alexfilatov/tools
+brew untap alexfilatov/git-analyzer
 ```
 
 ## 📁 Final Repository Structure
@@ -214,6 +214,6 @@ end
 
 **🎉 Once set up, users can install your tool with just:**
 ```bash
-brew tap alexfilatov/tools
+brew tap alexfilatov/git-analyzer
 brew install git-analyzer
 ```
