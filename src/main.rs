@@ -74,6 +74,13 @@ struct WorkPattern {
     confidence: f32,       // 0.0 - 1.0
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+struct FileStats {
+    path: String,
+    commits: u32,
+    last_modified: DateTime<Utc>,
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -309,8 +316,77 @@ fn collect_activity_data(repo: &Repository) -> Result<(HashMap<String, u32>, Has
 
 fn analyze_files(repo_path: &PathBuf, json_output: bool) -> Result<()> {
     let repo = Repository::open(repo_path)?;
-    println!("📁 Analyzing files in repository: {:?}", repo_path);
+    let sorted_files = collect_file_data(&repo)?;
+
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&sorted_files)?);
+    } else {
+        println!("📁 Most Modified Files:");
+        println!("{:<50} {:<8} {:<20}", "File Path", "Commits", "Last Modified");
+        println!("{}", "=".repeat(80));
+        
+        for file in sorted_files.iter().take(20) {
+            println!("{:<50} {:<8} {:<20}", 
+                file.path,
+                file.commits,
+                file.last_modified.format("%Y-%m-%d %H:%M")
+            );
+        }
+    }
+
     Ok(())
+}
+
+fn collect_file_data(repo: &Repository) -> Result<Vec<FileStats>> {
+    let mut file_stats: HashMap<String, FileStats> = HashMap::new();
+    
+    let mut revwalk = repo.revwalk()?;
+    revwalk.push_head()?;
+    
+    for oid in revwalk {
+        let oid = oid?;
+        let commit = repo.find_commit(oid)?;
+        let tree = commit.tree()?;
+        let author = commit.author();
+        let commit_time = DateTime::from_timestamp(author.when().seconds(), 0)
+            .unwrap_or_default()
+            .with_timezone(&Utc);
+        
+        if let Some(parent) = commit.parents().next() {
+            let parent_tree = parent.tree()?;
+            let diff = repo.diff_tree_to_tree(Some(&parent_tree), Some(&tree), None)?;
+            
+            diff.foreach(
+                &mut |delta, _progress| {
+                    if let Some(new_file) = delta.new_file().path() {
+                        let path_str = new_file.to_string_lossy().to_string();
+                        
+                        file_stats.entry(path_str.clone())
+                            .and_modify(|stats| {
+                                stats.commits += 1;
+                                if commit_time > stats.last_modified {
+                                    stats.last_modified = commit_time;
+                                }
+                            })
+                            .or_insert(FileStats {
+                                path: path_str,
+                                commits: 1,
+                                last_modified: commit_time,
+                            });
+                    }
+                    true
+                },
+                None,
+                None,
+                None,
+            )?;
+        }
+    }
+    
+    let mut sorted_files: Vec<_> = file_stats.into_values().collect();
+    sorted_files.sort_by(|a, b| b.commits.cmp(&a.commits));
+    
+    Ok(sorted_files)
 }
 
 fn analyze_all(repo_path: &PathBuf, json_output: bool) -> Result<()> {
