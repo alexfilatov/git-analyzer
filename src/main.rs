@@ -1,5 +1,6 @@
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
+use git2::Repository;
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -55,22 +56,54 @@ fn main() -> Result<()> {
 
     match cli.command {
         Commands::Contributors(args) => {
-            println!("Contributors analysis for: {:?}", args.path);
-            // TODO: Implement contributors analysis
+            analyze_contributors(&args.path, args.json)?
         },
         Commands::Activity(args) => {
-            println!("Activity analysis for: {:?}", args.path);
-            // TODO: Implement activity analysis
+            analyze_activity(&args.path, args.json)?
         },
         Commands::Files(args) => {
-            println!("Files analysis for: {:?}", args.path);
-            // TODO: Implement files analysis
+            analyze_files(&args.path, args.json)?
         },
         Commands::All(args) => {
-            println!("All analyses for: {:?}", args.path);
-            // TODO: Implement all analyses
+            analyze_all(&args.path, args.json)?
         },
     }
 
+    Ok(())
+}
+
+fn analyze_contributors(repo_path: &PathBuf, json_output: bool) -> Result<()> {
+    let repo = Repository::open(repo_path)?;
+    println!("📊 Analyzing contributors in repository: {:?}", repo_path);
+    
+    let mut revwalk = repo.revwalk()?;
+    revwalk.push_head()?;
+    
+    let mut commit_count = 0;
+    for _oid in revwalk {
+        commit_count += 1;
+    }
+    
+    println!("Found {} commits", commit_count);
+    Ok(())
+}
+
+fn analyze_activity(repo_path: &PathBuf, json_output: bool) -> Result<()> {
+    let repo = Repository::open(repo_path)?;
+    println!("📈 Analyzing activity in repository: {:?}", repo_path);
+    Ok(())
+}
+
+fn analyze_files(repo_path: &PathBuf, json_output: bool) -> Result<()> {
+    let repo = Repository::open(repo_path)?;
+    println!("📁 Analyzing files in repository: {:?}", repo_path);
+    Ok(())
+}
+
+fn analyze_all(repo_path: &PathBuf, json_output: bool) -> Result<()> {
+    println!("🔍 Running all analyses...");
+    analyze_contributors(repo_path, json_output)?;
+    analyze_activity(repo_path, json_output)?;
+    analyze_files(repo_path, json_output)?;
     Ok(())
 }
